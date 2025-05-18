@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Streamlit PV Dashboard
+Streamlit PV Dashboard cu upload modele
 """
 
 import pandas as pd
@@ -14,20 +14,39 @@ from datetime import datetime, timedelta
 import pytz
 
 # ─────────────
-# A) Configurații
+# A) Configurații generale
 # ─────────────
 lat, lon = 44.4268, 26.1025
 tz = pytz.timezone("Europe/Bucharest")
 API_KEY = "d2af965998c24aeb88395350251104"
 
-# Modele Keras & scaler.pkl
-mdl_12h    = tf.keras.models.load_model("GRU_model.keras")
-mdl_12_36h = tf.keras.models.load_model("LSTM_model12-36.keras")
-mdl_7d     = tf.keras.models.load_model("LSTM_model_7d.keras")
-scaler     = joblib.load("scaler.pkl")
+# ─────────────
+# Upload modele din UI
+# ─────────────
+st.sidebar.subheader("🔁 Încarcă Modele & Scaler")
+
+gru_file = st.sidebar.file_uploader("Model GRU (.keras)", type=["keras"])
+lstm12_file = st.sidebar.file_uploader("Model LSTM 12-36 (.keras)", type=["keras"])
+lstm7d_file = st.sidebar.file_uploader("Model LSTM 7d (.keras)", type=["keras"])
+scaler_file = st.sidebar.file_uploader("Scaler (.pkl)", type=["pkl"])
+
+mdl_12h = mdl_12_36h = mdl_7d = scaler = None
+
+if gru_file:
+    mdl_12h = tf.keras.models.load_model(gru_file)
+    st.sidebar.success("GRU încărcat!")
+if lstm12_file:
+    mdl_12_36h = tf.keras.models.load_model(lstm12_file)
+    st.sidebar.success("LSTM 12-36 încărcat!")
+if lstm7d_file:
+    mdl_7d = tf.keras.models.load_model(lstm7d_file)
+    st.sidebar.success("LSTM 7d încărcat!")
+if scaler_file:
+    scaler = joblib.load(scaler_file)
+    st.sidebar.success("Scaler încărcat!")
 
 # ─────────────
-# Funcție meteo curentă
+# Funcție meteo
 # ─────────────
 @st.cache_data
 def fetch_current_weather():
@@ -45,9 +64,6 @@ def fetch_current_weather():
         "uv":       r['uv']
     }
 
-# ─────────────
-# Load calendar & block finder
-# ─────────────
 @st.cache_data
 def load_calendar(threshold):
     t0 = datetime.now(tz)
@@ -89,13 +105,11 @@ def find_blocks(df, min_len=2):
 st.set_page_config(page_title="Dashboard PV", layout="wide")
 st.title("Dashboard PV – 7 zile")
 
-# Sidebar setări
 st.sidebar.header("Setări PV")
 threshold = st.sidebar.slider("Prag radiație (W/m²)", 100, 1000, 200, 10)
 area      = st.sidebar.number_input("Suprafață panouri (m²)", 1.0, 10000.0, 100.0, 1.0)
 eff_pct   = st.sidebar.slider("Randament (%)", 5, 25, 15) / 100.0
 
-# — condiții meteo curente —
 with st.expander("🌤️ Condiții meteo curente", expanded=True):
     cw = fetch_current_weather()
     c1, c2, c3, c4 = st.columns(4)
@@ -104,11 +118,9 @@ with st.expander("🌤️ Condiții meteo curente", expanded=True):
     c3.metric("Vânt", f"{cw['wind_kph']:.1f} km/h"); c3.metric("UV Index", cw["uv"])
     c4.metric("Presiune", f"{cw['pressure']} mb")
 
-# Încarcă datele și blocurile
 df = load_calendar(threshold)
 blocks = find_blocks(df)
 
-# — tabel estimare producție kWh —
 records = []
 for date, bl in blocks.items():
     for s, e in bl:
@@ -121,7 +133,6 @@ for date, bl in blocks.items():
         })
 df_records = pd.DataFrame(records)
 
-# Stilizare tabel
 styled = (
     df_records.style
     .format({"kWh estimați": "{:.2f}"})
@@ -134,8 +145,6 @@ styled = (
 st.subheader("Estimare producție PV pe blocuri")
 st.write(styled.to_html(), unsafe_allow_html=True)
 
-# — calendar heatmap —
-st.subheader("Calendar Încărcare PV")
 pivot = df.pivot(index='date', columns='hour', values='will_charge').fillna(0)
 dates = pivot.index.astype(str); hours = pivot.columns.tolist()
 
